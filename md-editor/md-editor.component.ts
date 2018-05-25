@@ -1,6 +1,27 @@
-import { Component, ViewChild, forwardRef, Renderer, Attribute, Input, ElementRef } from '@angular/core';
-import { NG_VALUE_ACCESSOR, ControlValueAccessor, NG_VALIDATORS, Validator, AbstractControl, ValidationErrors } from '@angular/forms';
+import {
+  Component,
+  ViewChild,
+  forwardRef,
+  Renderer,
+  Attribute,
+  Input,
+  ElementRef,
+  OnInit,
+  AfterViewInit,
+  OnDestroy,
+  EventEmitter,
+  Output
+} from '@angular/core';
+import {
+  NG_VALUE_ACCESSOR,
+  ControlValueAccessor,
+  NG_VALIDATORS,
+  Validator,
+  AbstractControl,
+  ValidationErrors
+} from '@angular/forms';
 import { DomSanitizer } from '@angular/platform-browser';
+import { ValueTransformer } from '@angular/compiler/src/util';
 
 declare let ace: any;
 declare let marked: any;
@@ -23,33 +44,32 @@ declare let hljs: any;
     }
   ]
 })
+export class MarkdownEditorComponent
+  implements ControlValueAccessor, Validator, OnInit, AfterViewInit, OnDestroy {
+  @ViewChild('aceEditor') aceEditorContainer: ElementRef;
 
-export class MarkdownEditorComponent implements ControlValueAccessor, Validator {
+  @Output() callBack = new EventEmitter();
 
-  @ViewChild('aceEditor')
-  aceEditorContainer: ElementRef;
+  @Input() hideToolbar = false;
 
-  @Input()
-  hideToolbar: boolean = false;
+  @Input() height = '300px';
 
-  @Input()
-  height: string = "300px";
-
-  @Input()
-  preRender: Function;
+  @Input() preRender: Function;
 
   @Input()
   get mode(): string {
     return this._mode || 'editor';
   }
   set mode(value: string) {
-    if (!value || (value.toLowerCase() !== 'editor' && value.toLowerCase() !== 'preview')) {
+    if (
+      !value ||
+      (value.toLowerCase() !== 'editor' && value.toLowerCase() !== 'preview')
+    ) {
       value = 'editor';
     }
     this._mode = value;
   }
   _mode: string;
-
 
   @Input()
   get options(): any {
@@ -68,6 +88,8 @@ export class MarkdownEditorComponent implements ControlValueAccessor, Validator 
   _options: any;
   _hideIcons: any = {};
 
+  autosave = true;
+
   get markdownValue(): any {
     return this._markdownValue || '';
   }
@@ -75,13 +97,37 @@ export class MarkdownEditorComponent implements ControlValueAccessor, Validator 
     this._markdownValue = value;
     this._onChange(value);
 
+    // emitting text from editor
+    this.callBack.emit(value);
+
     if (this.preRender && this.preRender instanceof Function) {
       value = this.preRender(value);
     }
+
+    const youtubeVideoReplaces = (
+      match: any,
+      widthAndHeight: string,
+      videoId: string
+    ) => {
+      return `<iframe ${widthAndHeight} src="https://www.youtube.com/embed/${videoId}" frameborder="0" allow="autoplay; encrypted-media" allowfullscreen></iframe>`;
+    };
+    const youtubeReplaser = (markdown: string) => {
+      return markdown.replace(
+        /\[youtube(.*)\].*\/watch\?v\=(.*)(\[\/youtube\])$/gim,
+        youtubeVideoReplaces
+      );
+    };
+
     if (value !== null && value !== undefined) {
-      if (this._renderMarkTimeout) clearTimeout(this._renderMarkTimeout);
+      if (this._renderMarkTimeout) {
+        clearTimeout(this._renderMarkTimeout);
+      }
       this._renderMarkTimeout = setTimeout(() => {
-        let html = marked(value || '', this._markedOpt);
+        if (this.autosave) {
+          localStorage.setItem('markdown', value);
+        }
+        value = youtubeReplaser(value);
+        const html = marked(value || '', this._markedOpt);
         this._previewHtml = this._domSanitizer.bypassSecurityTrustHtml(html);
       }, 100);
     }
@@ -92,28 +138,37 @@ export class MarkdownEditorComponent implements ControlValueAccessor, Validator 
 
   editor: any;
 
-  showPreviewPanel: boolean = true;
-  isFullScreen: boolean = false;
+  canLoad: boolean;
+
+  showPreviewPanel = true;
+  isFullScreen = false;
 
   _markedOpt: any;
   _previewHtml: any;
 
-  _onChange = (_: any) => { };
-  _onTouched = () => { };
+  _onChange = (_: any) => {};
+  _onTouched = () => {};
 
   constructor(
     @Attribute('required') public required: boolean = false,
     @Attribute('maxlength') public maxlength: number = -1,
     private _renderer: Renderer,
-    private _domSanitizer: DomSanitizer) {
-
-  }
+    private _domSanitizer: DomSanitizer
+  ) {}
 
   ngOnInit() {
-    let _markedRender = new marked.Renderer();
+    if (localStorage.getItem('markdown').length) {
+      this.canLoad = true;
+    } else {
+      this.canLoad = false;
+    }
+
+    const _markedRender = new marked.Renderer();
     _markedRender.code = (code: any, language: any) => {
-      let validLang = !!(language && hljs.getLanguage(language));
-      let highlighted = validLang ? hljs.highlight(language, code).value : code;
+      const validLang = !!(language && hljs.getLanguage(language));
+      const highlighted = validLang
+        ? hljs.highlight(language, code).value
+        : code;
       return `<pre style="padding: 0; border-radius: 0;"><code class="hljs ${language}">${highlighted}</code></pre>`;
     };
     _markedRender.table = (header: string, body: string) => {
@@ -123,8 +178,14 @@ export class MarkdownEditorComponent implements ControlValueAccessor, Validator 
     _markedRender.listitem = (text: any) => {
       if (/^\s*\[[x ]\]\s*/.test(text)) {
         text = text
-          .replace(/^\s*\[ \]\s*/, '<i class="fa fa-square-o" style="margin: 0 0.2em 0.25em -1.6em;"></i> ')
-          .replace(/^\s*\[x\]\s*/, '<i class="fa fa-check-square" style="margin: 0 0.2em 0.25em -1.6em;"></i> ');
+          .replace(
+            /^\s*\[ \]\s*/,
+            '<i class="fa fa-square-o" style="margin: 0 0.2em 0.25em -1.6em;"></i> '
+          )
+          .replace(
+            /^\s*\[x\]\s*/,
+            '<i class="fa fa-check-square" style="margin: 0 0.2em 0.25em -1.6em;"></i> '
+          );
         return `<li style="list-style: none;">${text}</li>`;
       } else {
         return `<li>${text}</li>`;
@@ -138,21 +199,20 @@ export class MarkdownEditorComponent implements ControlValueAccessor, Validator 
   }
 
   ngAfterViewInit() {
-    let editorElement = this.aceEditorContainer.nativeElement;
+    const editorElement = this.aceEditorContainer.nativeElement;
     this.editor = ace.edit(editorElement);
     this.editor.$blockScrolling = Infinity;
     this.editor.getSession().setUseWrapMode(true);
-    this.editor.getSession().setMode("ace/mode/markdown");
-    this.editor.setValue(this.markdownValue || '');
+    this.editor.getSession().setMode('ace/mode/markdown');
+    this.editor.setValue(this._markdownValue || '');
 
-    this.editor.on("change", (e: any) => {
-      let val = this.editor.getValue();
+    this.editor.on('change', (e: any) => {
+      const val = this.editor.getValue();
       this.markdownValue = val;
     });
   }
 
-  ngOnDestroy() {
-  }
+  ngOnDestroy() {}
 
   writeValue(value: any | Array<any>): void {
     setTimeout(() => {
@@ -183,12 +243,14 @@ export class MarkdownEditorComponent implements ControlValueAccessor, Validator 
   }
 
   insertContent(type: string) {
-    if (!this.editor) return;
+    if (!this.editor) {
+      return;
+    }
     let selectedText = this.editor.getSelectedText();
-    let isSeleted = !!selectedText;
+    const isSeleted = !!selectedText;
     let startSize = 2;
-    let initText: string = '';
-    let range = this.editor.selection.getRange();
+    let initText = '';
+    const range = this.editor.selection.getRange();
     switch (type) {
       case 'Bold':
         initText = 'Bold Text';
@@ -214,16 +276,20 @@ export class MarkdownEditorComponent implements ControlValueAccessor, Validator 
       case 'Image':
         selectedText = `![](http://)`;
         break;
+      case 'Youtube':
+        selectedText = `[youtube width="" height=""]https://[/youtube]`;
+        break;
       case 'Ul':
-        selectedText = `- ${selectedText || initText}`
+        selectedText = `- ${selectedText || initText}`;
         break;
       case 'Ol':
-        selectedText = `1. ${selectedText || initText}`
+        selectedText = `1. ${selectedText || initText}`;
         startSize = 3;
         break;
       case 'Code':
         initText = 'Source Code';
-        selectedText = "```language\r\n" + (selectedText || initText) + "\r\n```";
+        selectedText =
+          '```language\r\n' + (selectedText || initText) + '\r\n```';
         startSize = 3;
         break;
     }
@@ -248,7 +314,11 @@ export class MarkdownEditorComponent implements ControlValueAccessor, Validator 
 
   fullScreen() {
     this.isFullScreen = !this.isFullScreen;
-    this._renderer.setElementStyle(document.body, 'overflowY', this.isFullScreen ? 'hidden' : 'auto');
+    this._renderer.setElementStyle(
+      document.body,
+      'overflowY',
+      this.isFullScreen ? 'hidden' : 'auto'
+    );
     this.editorResize();
   }
 
@@ -259,5 +329,13 @@ export class MarkdownEditorComponent implements ControlValueAccessor, Validator 
         this.editor.focus();
       }, timeOut);
     }
+  }
+
+  loadLastSave() {
+    this.editor.setValue(
+      (this._markdownValue || '') +
+        '\n\n\n\nBackup:\n\n' +
+        (localStorage.getItem('markdown') || '')
+    );
   }
 }
