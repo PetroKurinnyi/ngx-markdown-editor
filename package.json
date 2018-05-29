@@ -44,5 +44,9 @@
     "lib": {
       "entryFile": "index.ts"
     }
+  },
+  "dependencies": {
+    "@angular/cdk": "^6.1.0",
+    "@angular/material": "^6.1.0"
   }
 }
